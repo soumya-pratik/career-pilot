@@ -7,7 +7,7 @@ import httpx
 from career_pilot.schemas import JobMatch
 
 JSEARCH_HOST = "jsearch.p.rapidapi.com"
-JSEARCH_URL = f"https://{JSEARCH_HOST}/search"
+JSEARCH_URL = f"https://{JSEARCH_HOST}/search-v2"
 
 
 def search_jobs(
@@ -16,10 +16,11 @@ def search_jobs(
     api_key: str,
     location: str = "Remote",
     num_pages: int = 1,
-    page: int = 1,
+    country: str = "us",
+    date_posted: str = "all",
     timeout: float = 30.0,
 ) -> list[JobMatch]:
-    """Search job postings via JSearch (RapidAPI).
+    """Search job postings via JSearch search-v2 (RapidAPI).
 
     Raises ValueError if api_key is missing.
     Raises httpx.HTTPError on transport/HTTP failures.
@@ -28,14 +29,15 @@ def search_jobs(
         raise ValueError("JSEARCH_API_KEY is not set")
 
     headers = {
+        "Content-Type": "application/json",
         "x-rapidapi-key": api_key,
         "x-rapidapi-host": JSEARCH_HOST,
     }
     params: dict[str, Any] = {
         "query": query if not location else f"{query} in {location}",
-        "page": str(page),
         "num_pages": str(num_pages),
-        "date_posted": "month",
+        "country": country,
+        "date_posted": date_posted,
     }
 
     with httpx.Client(timeout=timeout) as client:
@@ -43,7 +45,7 @@ def search_jobs(
         response.raise_for_status()
         payload = response.json()
 
-    results = payload.get("data") or []
+    results = _extract_jobs(payload)
     jobs: list[JobMatch] = []
     for item in results:
         if not isinstance(item, dict):
@@ -63,6 +65,18 @@ def search_jobs(
             )
         )
     return jobs
+
+
+def _extract_jobs(payload: dict[str, Any]) -> list[Any]:
+    """Support both legacy list `data` and search-v2 `{jobs: [...]}` shapes."""
+    data = payload.get("data")
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        jobs = data.get("jobs")
+        if isinstance(jobs, list):
+            return jobs
+    return []
 
 
 def _format_location(item: dict[str, Any]) -> str:
